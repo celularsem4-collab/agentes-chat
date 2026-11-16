@@ -1,0 +1,49 @@
+name: Lightweight mode validation
+on:
+  push:
+    branches: [verify/desktop-light-mode]
+permissions:
+  contents: read
+jobs:
+  desktop-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun test apps/desktop/test
+      - run: bun run --cwd apps/desktop typecheck
+      - run: bun run --cwd apps/desktop build
+      - run: bun run check:boundaries
+      - run: bun run check:licenses
+      - run: bun run lint
+  native-windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+      - run: bun install --frozen-lockfile
+      - name: Stand-ins for bundled assets
+        working-directory: apps/desktop
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist,src-tauri/binaries | Out-Null
+          '<!doctype html>' | Set-Content dist/index.html
+          foreach ($name in @('agentes-runner','agent-browser')) {
+            Copy-Item "$env:WINDIR/System32/where.exe" "src-tauri/binaries/$name-x86_64-pc-windows-msvc.exe"
+          }
+          bun scripts/icons.ts
+          bun run tauri icon app-icon-tile.png
+      - name: Native unit tests and Windows compilation
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --lib
